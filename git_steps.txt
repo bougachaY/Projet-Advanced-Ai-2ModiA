@@ -1,0 +1,4 @@
+git status 
+git add . (ou fichier)
+git commit -m "message"
+git push origin ezz

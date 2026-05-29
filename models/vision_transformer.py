@@ -180,12 +180,10 @@ class ViTBlock(nn.Module):
     def __init__(self, cfg):
         super().__init__()
 
-        # self.ln1 = ...    # LayerNorm applied before attention
-        # self.attn = ...   # the ViTAttention sub-layer
-        # self.ln2 = ...    # LayerNorm applied before the MLP
-        # self.mlp = ...    # the ViTMLP sub-layer
-
-        raise NotImplementedError
+        self.ln1 = nn.LayerNorm(cfg.hidden_dim, eps=cfg.ln_eps)    # LayerNorm applied before attention
+        self.attn = ViTAttention(cfg)  # the ViTAttention sub-layer
+        self.ln2 = nn.LayerNorm(cfg.hidden_dim, eps=cfg.ln_eps) # LayerNorm applied before the MLP
+        self.mlp = ViTMLP(cfg)  # the ViTMLP sub-layer
 
     def forward(self, x):
         """
@@ -195,9 +193,10 @@ class ViTBlock(nn.Module):
             x = x + attn(ln1(x))
             x = x + mlp(ln2(x))
         """
-        # TODO: Apply attention with pre-norm and residual, then the MLP
-        #       with pre-norm and residual (pattern shown in the docstring).
-        raise NotImplementedError
+        x = x + self.attn(self.ln1(x)) # TODO: Apply attention with pre-norm and residual, then the MLP
+        x = x + self.mlp(self.ln2(x))  # with pre-norm and residual (pattern shown in the docstring).
+        
+        return x
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -208,12 +207,10 @@ class ViT(nn.Module):
         self.cfg = cfg
         self.cls_flag = cfg.cls_flag
 
-        # self.patch_embedding = ...  # the ViTPatchEmbeddings sub-module
-        # self.dropout = ...          # Dropout
-        # self.blocks = ...           # ModuleList of n_blocks ViTBlock layers
-        # self.layer_norm = ...       # final LayerNorm (hidden_dim, eps=cfg.ln_eps)
-
-        raise NotImplementedError
+        self.patch_embedding = ViTPatchEmbeddings(cfg)  # the ViTPatchEmbeddings sub-module
+        self.dropout = nn.Dropout(cfg.dropout)          # Dropout
+        self.blocks = nn.ModuleList([ViTBlock(cfg) for _ in range(cfg.n_blocks)])          # ModuleList of n_blocks ViTBlock layers
+        self.layer_norm = nn.LayerNorm(cfg.hidden_dim, eps=cfg.ln_eps)      # final LayerNorm (hidden_dim, eps=cfg.ln_eps)
 
         self.apply(self._init_weights)
 
@@ -243,7 +240,17 @@ class ViT(nn.Module):
         TODO 4: Apply the final layer normalization.
         TODO 5: Return all patch tokens (cls_flag is False for this encoder).
         """
-        raise NotImplementedError
+        
+        x = self.patch_embedding(x)
+        
+        x = self.dropout(x)
+        
+        for block in self.blocks:
+            x = block(x)
+            
+        x = self.layer_norm(x)
+        
+        return x
 
     # ── Provided: loads pretrained SigLIP2 weights ────────────────────────────
     @classmethod
