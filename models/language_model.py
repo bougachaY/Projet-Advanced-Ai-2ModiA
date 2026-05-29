@@ -37,11 +37,11 @@ class RMSNorm(nn.Module):
     def __init__(self, cfg):
         super().__init__()
 
-        # self.weight = ...    # learnable scale of shape [hidden_dim], initialized to
+        self.weight = nn.Parameter(torch.ones(cfg.hidden_dim))    # learnable scale of shape [hidden_dim], initialized to
         #                      # all ones (use nn.Parameter)
-        # self.rms_eps = ...
+        self.rms_eps = cfg.rms_eps
 
-        raise NotImplementedError
+        # raise NotImplementedError
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -52,7 +52,7 @@ class RMSNorm(nn.Module):
         """
         # TODO: Compute the inverse RMS of x along the last dimension
         #       (keepdim=True), then scale x by it and the learned weight.
-        raise NotImplementedError
+        return x * torch.rsqrt(x.pow(2).mean(dim=-1, keepdim=True) + self.rms_eps) * self.weight
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -127,7 +127,17 @@ class RotaryEmbedding(nn.Module):
         TODO 4 — Compute cosine and sine of the embeddings, scale each by
                  attn_scaling, and return both.
         """
+        # Step 1: Scale down frequencies if needed
+        if position_ids.max() > self.max_position_embeddings:
+            scaling_factor = position_ids.max() / self.max_position_embeddings
+            inv_freq = self.inv_freq / scaling_factor
+        else:
+            inv_freq = self.inv_freq
+        
+        # Step 2: Compute frequencies for each position
+        postions_ids = position_ids.flatten()
         raise NotImplementedError
+        
 
 
 def rotate_half(x: torch.Tensor) -> torch.Tensor:
@@ -171,17 +181,17 @@ class LMAttention(nn.Module):
 
         assert self.n_heads % self.n_kv_heads == 0
 
-        # self.n_kv_groups = ...   # query heads per KV head (n_heads // n_kv_heads)
-        # self.head_dim = ...      # embedding dimension per attention head
-        # self.q_proj = ...        # Linear: hidden_dim → n_heads × head_dim (no bias)
-        # self.k_proj = ...        # Linear: hidden_dim → n_kv_heads × head_dim (no bias)
-        # self.v_proj = ...        # Linear: same output shape as k_proj (no bias)
-        # self.out_proj = ...      # Linear: hidden_dim → hidden_dim (no bias)
-        # self.attn_dropout = ...  # Dropout on attention weights
-        # self.resid_dropout = ... # Dropout on the output
-        # self.sdpa = ...          # True if F.scaled_dot_product_attention is available
+        self.n_kv_groups = self.n_heads // self.n_kv_heads   # query heads per KV head (n_heads // n_kv_heads)
+        self.head_dim = self.hidden_dim // self.n_heads      # embedding dimension per attention head
+        self.q_proj = nn.Linear(self.hidden_dim, self.n_heads * self.head_dim, bias=False)        # Linear: hidden_dim → n_heads × head_dim (no bias)
+        self.k_proj = nn.Linear(self.hidden_dim, self.n_kv_heads * self.head_dim, bias=False)        # Linear: hidden_dim → n_kv_heads × head_dim (no bias)
+        self.v_proj = nn.Linear(self.hidden_dim, self.n_kv_heads * self.head_dim, bias=False)        # Linear: same output shape as k_proj (no bias)
+        self.out_proj = nn.Linear(self.hidden_dim, self.hidden_dim, bias=False)      # Linear: hidden_dim → hidden_dim (no bias)
+        self.attn_dropout = nn.Dropout(self.dropout)  # Dropout on attention weights
+        self.resid_dropout = nn.Dropout(self.dropout) # Dropout on the output
+        self.sdpa = True if F.scaled_dot_product_attention is available else False
 
-        raise NotImplementedError
+        #raise NotImplementedError
 
     def forward(self, x, cos, sin, attention_mask=None, block_kv_cache=None):
         """
@@ -242,11 +252,11 @@ class LMMLP(nn.Module):
     def __init__(self, cfg):
         super().__init__()
 
-        # self.gate_proj = ...   # Linear: hidden_dim → inter_dim, no bias (gate branch)
-        # self.up_proj = ...     # Linear: hidden_dim → inter_dim, no bias (value branch)
-        # self.down_proj = ...   # Linear: inter_dim → hidden_dim, no bias
+        self.gate_proj = nn.Linear(self.hidden_dim, self.inter_dim, bias=False)   # Linear: hidden_dim → inter_dim, no bias (gate branch)
+        self.up_proj = nn.Linear(self.hidden_dim, self.inter_dim, bias=False)     # Linear: hidden_dim → inter_dim, no bias (value branch)
+        self.down_proj = nn.Linear(self.inter_dim, self.hidden_dim, bias=False)   # Linear: inter_dim → hidden_dim, no bias
 
-        raise NotImplementedError
+        #raise NotImplementedError
 
     def forward(self, x):
         """
@@ -264,12 +274,12 @@ class LMBlock(nn.Module):
     def __init__(self, cfg):
         super().__init__()
 
-        # self.norm1 = ...   # RMSNorm applied before attention
-        # self.attn = ...    # the LMAttention sub-layer
-        # self.norm2 = ...   # RMSNorm applied before the MLP
-        # self.mlp = ...     # the LMMLP sub-layer
+        self.norm1 = RMSNorm(self.hidden_dim)  # RMSNorm applied before attention
+        self.attn = LMAttention(cfg)    # the LMAttention sub-layer
+        self.norm2 = RMSNorm(self.hidden_dim)  # RMSNorm applied before the MLP
+        self.mlp = LMMLP(cfg)     # the LMMLP sub-layer
 
-        raise NotImplementedError
+        #raise NotImplementedError
 
     def forward(self, x, cos, sin, attention_mask=None, block_kv_cache=None):
         """
@@ -304,15 +314,16 @@ class LanguageModel(nn.Module):
         self.cfg = cfg
         self.tie_weights = cfg.tie_weights
 
-        # self.token_embedding = ...  # Embedding table: vocab_size → hidden_dim
-        # self.rotary_embd = ...      # the RotaryEmbedding module
-        # self.blocks = ...           # ModuleList of n_blocks LMBlock layers
-        # self.norm = ...             # final RMSNorm
-        # self.head = ...             # Linear: hidden_dim → vocab_size (no bias)
+        self.token_embedding = nn.Embedding(self.vocab_size, self.hidden_dim)  # Embedding table: vocab_size → hidden_dim
+        self.rotary_embd = RotaryEmbedding(self.head_dim)        # the RotaryEmbedding module
+        self.blocks = nn.ModuleList([LMBlock(cfg) for _ in range(self.n_blocks)])  # ModuleList of n_blocks LMBlock layers
+        self.norm = RMSNorm(self.hidden_dim)             # final RMSNorm
+        self.head = nn.Linear(self.hidden_dim, self.vocab_size, bias=False)             # Linear: hidden_dim → vocab_size (no bias)
 
-        # If self.tie_weights, share the token embedding weights with the head
+        if self.tie_weights:
+            self.head.weight = self.token_embedding.weight
 
-        raise NotImplementedError
+        #raise NotImplementedError
 
         self.apply(self._init_weights)
 
