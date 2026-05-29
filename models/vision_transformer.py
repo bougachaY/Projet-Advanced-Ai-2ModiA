@@ -1,4 +1,4 @@
-"""Vision Transformer (ViT) encoder — student skeleton. test
+"""Vision Transformer (ViT) encoder — student skeleton.
 
 Architecture overview
 ─────────────────────
