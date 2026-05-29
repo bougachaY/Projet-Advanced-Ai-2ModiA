@@ -189,7 +189,7 @@ class LMAttention(nn.Module):
         self.out_proj = nn.Linear(self.hidden_dim, self.hidden_dim, bias=False)      # Linear: hidden_dim → hidden_dim (no bias)
         self.attn_dropout = nn.Dropout(self.dropout)  # Dropout on attention weights
         self.resid_dropout = nn.Dropout(self.dropout) # Dropout on the output
-        self.sdpa = True if F.scaled_dot_product_attention is available else False
+        self.sdpa = hasattr(F, 'scaled_dot_product_attention')  # check if PyTorch has the built-in function
 
         #raise NotImplementedError
 
