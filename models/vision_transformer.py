@@ -52,14 +52,12 @@ class ViTPatchEmbeddings(nn.Module):
         self.patch_size = cfg.patch_size  # 16
         self.hidden_dim = cfg.hidden_dim  # 768
 
-        # self.num_patches = ...          # total patches = (img_size // patch_size)²
-        # self.conv = ...                 # Conv2d patch extractor: kernel_size and stride
+        self.num_patches = (self.img_size // self.patch_size)**2 # total patches = (img_size // patch_size)²
+        self.conv = nn.Conv2d(in_channels=3, out_channels=self.hidden_dim, kernel_size=self.patch_size, stride=self.patch_size) # Conv2d patch extractor: kernel_size and stride
         #                                 # both equal to patch_size, in_channels=3,
         #                                 # out_channels=hidden_dim, padding="valid"
-        # self.position_embedding = ...   # learnable nn.Parameter of shape
+        self.position_embedding = nn.Parameter(torch.zeros(1, self.num_patches, self.hidden_dim)) # learnable nn.Parameter of shape
         #                                 # [1, num_patches, hidden_dim]
-
-        raise NotImplementedError
 
     def forward(self, x):
         """
@@ -120,16 +118,16 @@ class ViTAttention(nn.Module):
         """
         B, T, C = x.size()
 
-        # TODO 1: Project x to queries, keys, and values in one shot with
+        x = self.conv(x)  # TODO 1: Project x to queries, keys, and values in one shot with
         #         qkv_proj, then split into three equal chunks along the
         #         last dimension.
         #         q, k, v each → [B, T, C]
 
-        # TODO 2: Use view to introduce the head dimension, then transpose
+        x = x.flatten(2) # TODO 2: Use view to introduce the head dimension, then transpose
         #         so heads come before the sequence.
         #         Each of q, k, v → [B, n_heads, T, head_dim]
 
-        # TODO 3: Attend.
+        x = x.transpose(1, 2) # TODO 3: Attend.
         #   If self.sdpa:
         #       Use scaled_dot_product_attention; set is_causal=False
         #       because the vision encoder attends to all patches in
@@ -137,13 +135,13 @@ class ViTAttention(nn.Module):
         #   Else (fallback):
         #       scores = q @ k.T / sqrt(head_dim), softmax, dropout, @ v
 
-        # TODO 4: Transpose the head and sequence dimensions back, call
+        x = x + self.position_embedding # TODO 4: Transpose the head and sequence dimensions back, call
         #         contiguous, then collapse the head dimension into the
         #         channel dimension with view.
         #         Apply out_proj then resid_dropout.
         #         Output: [B, T, C]
 
-        raise NotImplementedError
+        return x
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -179,12 +177,10 @@ class ViTBlock(nn.Module):
     def __init__(self, cfg):
         super().__init__()
 
-        # self.ln1 = ...    # LayerNorm applied before attention
-        # self.attn = ...   # the ViTAttention sub-layer
-        # self.ln2 = ...    # LayerNorm applied before the MLP
-        # self.mlp = ...    # the ViTMLP sub-layer
-
-        raise NotImplementedError
+        self.ln1 = nn.LayerNorm(cfg.hidden_dim, eps=cfg.ln_eps)    # LayerNorm applied before attention
+        self.attn = ViTAttention(cfg)  # the ViTAttention sub-layer
+        self.ln2 = nn.LayerNorm(cfg.hidden_dim, eps=cfg.ln_eps) # LayerNorm applied before the MLP
+        self.mlp = ViTMLP(cfg)  # the ViTMLP sub-layer
 
     def forward(self, x):
         """
@@ -194,9 +190,10 @@ class ViTBlock(nn.Module):
             x = x + attn(ln1(x))
             x = x + mlp(ln2(x))
         """
-        # TODO: Apply attention with pre-norm and residual, then the MLP
-        #       with pre-norm and residual (pattern shown in the docstring).
-        raise NotImplementedError
+        x = x + self.attn(self.ln1(x)) # TODO: Apply attention with pre-norm and residual, then the MLP
+        x = x + self.mlp(self.ln2(x))  # with pre-norm and residual (pattern shown in the docstring).
+        
+        return x
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -207,12 +204,10 @@ class ViT(nn.Module):
         self.cfg = cfg
         self.cls_flag = cfg.cls_flag
 
-        # self.patch_embedding = ...  # the ViTPatchEmbeddings sub-module
-        # self.dropout = ...          # Dropout
-        # self.blocks = ...           # ModuleList of n_blocks ViTBlock layers
-        # self.layer_norm = ...       # final LayerNorm (hidden_dim, eps=cfg.ln_eps)
-
-        raise NotImplementedError
+        self.patch_embedding = ViTPatchEmbeddings(cfg)  # the ViTPatchEmbeddings sub-module
+        self.dropout = nn.Dropout(cfg.dropout)          # Dropout
+        self.blocks = nn.ModuleList([ViTBlock(cfg) for _ in range(cfg.n_blocks)])          # ModuleList of n_blocks ViTBlock layers
+        self.layer_norm = nn.LayerNorm(cfg.hidden_dim, eps=cfg.ln_eps)      # final LayerNorm (hidden_dim, eps=cfg.ln_eps)
 
         self.apply(self._init_weights)
 
@@ -242,7 +237,17 @@ class ViT(nn.Module):
         TODO 4: Apply the final layer normalization.
         TODO 5: Return all patch tokens (cls_flag is False for this encoder).
         """
-        raise NotImplementedError
+        
+        x = self.patch_embedding(x)
+        
+        x = self.dropout(x)
+        
+        for block in self.blocks:
+            x = block(x)
+            
+        x = self.layer_norm(x)
+        
+        return x
 
     # ── Provided: loads pretrained SigLIP2 weights ────────────────────────────
     @classmethod
