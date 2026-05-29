@@ -52,12 +52,14 @@ class ViTPatchEmbeddings(nn.Module):
         self.patch_size = cfg.patch_size  # 16
         self.hidden_dim = cfg.hidden_dim  # 768
 
-        self.num_patches = (self.img_size // self.patch_size)**2 # total patches = (img_size // patch_size)²
-        self.conv = nn.Conv2d(in_channels=3, out_channels=self.hidden_dim, kernel_size=self.patch_size, stride=self.patch_size) # Conv2d patch extractor: kernel_size and stride
+        # self.num_patches = ...          # total patches = (img_size // patch_size)²
+        # self.conv = ...                 # Conv2d patch extractor: kernel_size and stride
         #                                 # both equal to patch_size, in_channels=3,
         #                                 # out_channels=hidden_dim, padding="valid"
-        self.position_embedding = nn.Parameter(torch.zeros(1, self.num_patches, self.hidden_dim)) # learnable nn.Parameter of shape
+        # self.position_embedding = ...   # learnable nn.Parameter of shape
         #                                 # [1, num_patches, hidden_dim]
+
+        raise NotImplementedError
 
     def forward(self, x):
         """
@@ -118,16 +120,16 @@ class ViTAttention(nn.Module):
         """
         B, T, C = x.size()
 
-        x = self.conv(x)  # TODO 1: Project x to queries, keys, and values in one shot with
+        # TODO 1: Project x to queries, keys, and values in one shot with
         #         qkv_proj, then split into three equal chunks along the
         #         last dimension.
         #         q, k, v each → [B, T, C]
 
-        x = x.flatten(2) # TODO 2: Use view to introduce the head dimension, then transpose
+        # TODO 2: Use view to introduce the head dimension, then transpose
         #         so heads come before the sequence.
         #         Each of q, k, v → [B, n_heads, T, head_dim]
 
-        x = x.transpose(1, 2) # TODO 3: Attend.
+        # TODO 3: Attend.
         #   If self.sdpa:
         #       Use scaled_dot_product_attention; set is_causal=False
         #       because the vision encoder attends to all patches in
@@ -135,13 +137,13 @@ class ViTAttention(nn.Module):
         #   Else (fallback):
         #       scores = q @ k.T / sqrt(head_dim), softmax, dropout, @ v
 
-        x = x + self.position_embedding # TODO 4: Transpose the head and sequence dimensions back, call
+        # TODO 4: Transpose the head and sequence dimensions back, call
         #         contiguous, then collapse the head dimension into the
         #         channel dimension with view.
         #         Apply out_proj then resid_dropout.
         #         Output: [B, T, C]
 
-        return x
+        raise NotImplementedError
 
 
 # ─────────────────────────────────────────────────────────────────────────────
