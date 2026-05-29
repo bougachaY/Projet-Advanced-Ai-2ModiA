@@ -52,14 +52,14 @@ class ViTPatchEmbeddings(nn.Module):
         self.patch_size = cfg.patch_size  # 16
         self.hidden_dim = cfg.hidden_dim  # 768
 
-        # self.num_patches = ...          # total patches = (img_size // patch_size)²
-        # self.conv = ...                 # Conv2d patch extractor: kernel_size and stride
+        self.num_patches = (self.img_size // self.patch_size)**2          # total patches = (img_size // patch_size)²
+        self.conv = nn.Conv2d(in_channels=3, out_channels=self.hidden_dim, kernel_size=self.patch_size, stride=self.patch_size) # Conv2d patch extractor: kernel_size and stride
         #                                 # both equal to patch_size, in_channels=3,
         #                                 # out_channels=hidden_dim, padding="valid"
-        # self.position_embedding = ...   # learnable nn.Parameter of shape
+        self.position_embedding = nn.Parameter(torch.zeros(1, self.num_patches, self.hidden_dim)) # learnable nn.Parameter of shape
         #                                 # [1, num_patches, hidden_dim]
 
-        raise NotImplementedError
+        #raise NotImplementedError
 
     def forward(self, x):
         """
@@ -68,19 +68,20 @@ class ViTPatchEmbeddings(nn.Module):
         Returns:
             [B, num_patches, hidden_dim]  =  [B, 1024, 768]
         """
-        # TODO 1: Apply the convolutional patch extractor.
+        x = self.conv(x) # TODO 1: Apply the convolutional patch extractor.
         #         Output: [B, hidden_dim, 32, 32]
+    
 
-        # TODO 2: Flatten the two spatial dimensions into one.
+        x = x.flatten(2)# TODO 2: Flatten the two spatial dimensions into one.
         #         Output: [B, hidden_dim, 1024]
 
-        # TODO 3: Swap the patch and channel dimensions.
+        x = x.transpose(1, 2) # TODO 3: Swap the patch and channel dimensions.
         #         Output: [B, 1024, hidden_dim]
 
-        # TODO 4: Add the learned position embeddings to each patch token.
+        x = x + self.position_embedding # TODO 4: Add the learned position embeddings to each patch token.
         #         Output: [B, 1024, hidden_dim]
 
-        raise NotImplementedError
+        return x #raise NotImplementedError
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -101,15 +102,15 @@ class ViTAttention(nn.Module):
         assert self.hidden_dim % self.n_heads == 0
         self.dropout = cfg.dropout
 
-        # self.head_dim = ...          # embedding dimension per attention head
-        # self.qkv_proj = ...          # single Linear: hidden_dim → 3 × hidden_dim
+        self.head_dim = self.head_dim = self.hidden_dim // self.n_heads         # embedding dimension per attention head
+        self.qkv_proj = nn.Linear(self.hidden_dim, 3*self.hidden_dim, bias=True)          # single Linear: hidden_dim → 3 × hidden_dim
         #                              # (Q, K, V packed together; bias=True)
-        # self.out_proj = ...          # Linear: hidden_dim → hidden_dim (bias=True)
-        # self.attn_dropout = ...      # Dropout on attention weights
-        # self.resid_dropout = ...     # Dropout on the output projection
-        # self.sdpa = ...              # True if F.scaled_dot_product_attention is available
+        self.out_proj = nn.Linear(self.hidden_dim, self.hidden_dim, bias=True)         # Linear: hidden_dim → hidden_dim (bias=True)
+        self.attn_dropout = nn.Dropout(self.dropout)      # Dropout on attention weights
+        self.resid_dropout = nn.Dropout(self.dropout)     # Dropout on the output projection
+        self.sdpa = hasattr(F, "scaled_dot_product_attention")           # True if F.scaled_dot_product_attention is available
 
-        raise NotImplementedError
+        #raise NotImplementedError
 
     def forward(self, x):
         """
