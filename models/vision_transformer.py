@@ -102,7 +102,7 @@ class ViTAttention(nn.Module):
         assert self.hidden_dim % self.n_heads == 0
         self.dropout = cfg.dropout
 
-        self.head_dim = self.head_dim = self.hidden_dim // self.n_heads         # embedding dimension per attention head
+        self.head_dim = self.hidden_dim // self.n_heads         # embedding dimension per attention head
         self.qkv_proj = nn.Linear(self.hidden_dim, 3*self.hidden_dim, bias=True)          # single Linear: hidden_dim → 3 × hidden_dim
         #                              # (Q, K, V packed together; bias=True)
         self.out_proj = nn.Linear(self.hidden_dim, self.hidden_dim, bias=True)         # Linear: hidden_dim → hidden_dim (bias=True)
@@ -121,30 +121,34 @@ class ViTAttention(nn.Module):
         """
         B, T, C = x.size()
 
-        # TODO 1: Project x to queries, keys, and values in one shot with
-        #         qkv_proj, then split into three equal chunks along the
+        qkv = self.qkv_proj(x) # TODO 1: Project x to queries, keys, and values in one shot with
+        q, k, v = qkv.chunk(3, dim=-1) #         qkv_proj, then split into three equal chunks along the
         #         last dimension.
         #         q, k, v each → [B, T, C]
 
-        # TODO 2: Use view to introduce the head dimension, then transpose
-        #         so heads come before the sequence.
-        #         Each of q, k, v → [B, n_heads, T, head_dim]
+        q = q.view(B, T, self.n_heads, self.head_dim).transpose(1, 2)# TODO 2: Use view to introduce the head dimension, then transpose
+        k = k.view(B, T, self.n_heads, self.head_dim).transpose(1, 2)#         so heads come before the sequence.
+        v = v.view(B, T, self.n_heads, self.head_dim).transpose(1, 2)#         Each of q, k, v → [B, n_heads, T, head_dim]
 
         # TODO 3: Attend.
-        #   If self.sdpa:
-        #       Use scaled_dot_product_attention; set is_causal=False
+        if self.sdpa:
+            y = F.scaled_dot_product_attention(q,k,v, dropout_p=self.dropout if self.training else 0.0, is_causal=False)  # Use scaled_dot_product_attention; set is_causal=False
         #       because the vision encoder attends to all patches in
         #       both directions.
-        #   Else (fallback):
-        #       scores = q @ k.T / sqrt(head_dim), softmax, dropout, @ v
+        else: #(fallback)
+            scores = (q @ k.transpose(-2, -1)) / (self.head_dim ** 0.5)
+            attn = F.softmax(scores, dim=-1)
+            attn = self.attn_dropout(attn)
+            y = attn @ v
 
         # TODO 4: Transpose the head and sequence dimensions back, call
-        #         contiguous, then collapse the head dimension into the
-        #         channel dimension with view.
-        #         Apply out_proj then resid_dropout.
-        #         Output: [B, T, C]
+        y = y.transpose(1, 2)
+        y = y.contiguous().view(B, T, C)    #contiguous, then collapse the head dimension into the channel dimension with view.
+        y = self.out_proj(y)       #         Apply out_proj then resid_dropout.
+        y = self.resid_dropout(y)#         Output: [B, T, C]
+        return y
 
-        raise NotImplementedError
+        #raise NotImplementedError
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -157,12 +161,15 @@ class ViTMLP(nn.Module):
     def __init__(self, cfg):
         super().__init__()
 
-        # self.activation_fn = ...    # GELU activation (approximate='tanh')
-        # self.fc1 = ...              # Linear: hidden_dim → inter_dim
-        # self.fc2 = ...              # Linear: inter_dim → hidden_dim
-        # self.dropout = ...          # Dropout
+        self.hidden_dim = cfg.hidden_dim
+        self.inter_dim = cfg.inter_dim
 
-        raise NotImplementedError
+        self.activation_fn = nn.GELU()    # GELU activation (approximate='tanh')
+        self.fc1 = nn.Linear(self.hidden_dim, self.inter_dim)              # Linear: hidden_dim → inter_dim
+        self.fc2 = nn.Linear(self.inter_dim, self.hidden_dim)              # Linear: inter_dim → hidden_dim
+        self.dropout = nn.Dropout(cfg.dropout)          # Dropout
+
+        #raise NotImplementedError
 
     def forward(self, x):
         """
@@ -171,7 +178,13 @@ class ViTMLP(nn.Module):
         TODO: Pass through fc1, apply the GELU activation, then fc2,
               then dropout.
         """
-        raise NotImplementedError
+        x = self.fc1(x)
+        x = self.activation_fn(x)
+        x = self.fc2(x)
+        x = self.dropout(x)
+
+        return x
+        #raise NotImplementedError
 
 
 # ─────────────────────────────────────────────────────────────────────────────
