@@ -275,7 +275,9 @@ class LMMLP(nn.Module):
         TODO: Apply silu to the gate projection, multiply element-wise
               with the up projection, then project back down.
         """
-        raise NotImplementedError
+        x = F.silu(self.gate_proj(x)) * self.up_proj(x)
+        x = self.down_proj(x)
+        return x
 
 
 # ─────────────────────────────────────────────────────────────────────────────
