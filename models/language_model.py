@@ -135,8 +135,18 @@ class RotaryEmbedding(nn.Module):
             inv_freq = self.inv_freq
         
         # Step 2: Compute frequencies for each position
-        postions_ids = position_ids.flatten()
-        raise NotImplementedError
+        positions = position_ids.flatten()
+        freqs = positions.unsqueeze(-1) * inv_freq.unsqueeze(0)  # [B*T, dim/2]
+        freqs = freqs.view(position_ids.size(0), position_ids.size(1), -1)  # [B, T, dim/2]
+        
+        # Step 3: Duplicate frequencies along the last dimension
+        freqs = torch.cat([freqs, freqs], dim=-1)  # [B, T, dim]
+        
+        # Step 4: Compute and scale cosine and sine
+        cos = torch.cos(freqs) * self.attn_scaling
+        sin = torch.sin(freqs) * self.attn_scaling
+        return cos, sin
+        
         
 
 
