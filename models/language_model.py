@@ -385,7 +385,10 @@ class LMBlock(nn.Module):
         attention returns a (output, cache) tuple — unpack it.
         """
         # TODO: Two pre-norm residual sub-layers (attention, then MLP).
-        raise NotImplementedError
+        attn_out, updated_cache = self.attn(self.norm1(x), cos, sin, attention_mask, block_kv_cache)
+        x = x + attn_out
+        x = x + self.mlp(self.norm2(x))
+        return x, updated_cache
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -461,8 +464,26 @@ class LanguageModel(nn.Module):
 
         TODO 6: Return the hidden states and the updated KV cache.
         """
-        raise NotImplementedError
-
+        # raise NotImplementedError
+        # TODO 1
+        B, T_curr, _ = x.size()
+        
+        # TODO 2
+        vectorized_positions = torch.arange(start_pos, start_pos + T_curr, device=x.device).unsqueeze(0).expand(B, T_curr)
+        cos, sin = self.rotary_embd(vectorized_positions)
+        
+        # TODO 3 : On ne crée la liste vide que si c'est le tout premier passage
+        if kv_cache is None:
+            kv_cache = [None] * len(self.blocks)
+            
+        # TODO 4 : On boucle et on met à jour la liste existante sur place
+        for i, block in enumerate(self.blocks):
+            x, kv_cache[i] = block(x, cos, sin, attention_mask, kv_cache[i])
+            
+        # TODO 5 & 6
+        x = self.norm(x)
+        return x, kv_cache
+        
     # ── Provided: greedy generation for the standalone LM ────────────────────
     @torch.inference_mode()
     def generate(self, inputs: torch.Tensor, max_new_tokens: int = 20):
