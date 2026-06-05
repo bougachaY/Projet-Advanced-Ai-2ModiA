@@ -246,7 +246,84 @@ class LMAttention(nn.Module):
                  into the channel dimension with view. Apply out_proj and
                  resid_dropout, and return together with the updated cache.
         """
-        raise NotImplementedError
+        # -------- Step 1
+        # Project to Q, K, V
+        q = self.q_proj(x)   # [B, T_curr, 960]
+        k = self.k_proj(x)   # [B, T_curr, 320]
+        v = self.v_proj(x)   # [B, T_curr, 320]
+
+        B, T_curr, _ = x.shape
+
+        # Split into heads
+        q = q.view(B, T_curr, self.n_heads, self.head_dim)
+        k = k.view(B, T_curr, self.n_kv_heads, self.head_dim)
+        v = v.view(B, T_curr, self.n_kv_heads, self.head_dim)
+
+        # Move heads before sequence dimension
+        q = q.transpose(1, 2)  # [B, n_heads,    T_curr, head_dim]
+        k = k.transpose(1, 2)  # [B, n_kv_heads, T_curr, head_dim]
+        v = v.transpose(1, 2)  # [B, n_kv_heads, T_curr, head_dim]
+
+        # --------- Step 2 
+        q, v = apply_rotary_pos_embd(q, v, cos, sin)
+
+        # --------- Step 3
+        # Initialize or update KV cache
+        if block_kv_cache is None:
+            block_kv_cache = {
+                "key": k,
+                "value": v,
+            }
+        else:
+            k = torch.cat([block_kv_cache["key"], k], dim=2)
+            v = torch.cat([block_kv_cache["value"], v], dim=2)
+
+            block_kv_cache = {
+                "key": k,
+                "value": v,
+            }
+
+        # ------- Step 4
+        k_exp = torch.repeat_interleave(k, self.n_kv_groups, dim=1)
+        v_exp = torch.repeat_interleave(v, self.n_kv_groups, dim=2)
+
+        # ------- Step 5
+        attn_mask = None
+        if attention_mask is not None:
+        # attention_mask: [B, T_kv] (1 = keep, 0 = pad)
+        attn_mask = (1.0 - attention_mask).to(dtype=q.dtype) * torch.finfo(q.dtype).min
+        attn_mask = attn_mask.view(q.size(0), 1, 1, -1)  # [B, 1, 1, T_kv]
+
+        # -------- Step 6
+        is_causal = (q.size(2) == k_exp.size(2)) and (q.size(2) > 1)
+
+        attn_output = F.scaled_dot_product_attention(
+            q,
+            k_exp,
+            v_exp,
+            attn_mask=attn_mask,
+            dropout_p=self.dropout if self.training else 0.0,
+            is_causal=is_causal,
+        )
+
+        #--------- Step 7
+        B, n_heads, T_curr, head_dim = attn_output.shape
+
+        # bring sequence dimension second
+        attn_output = attn_output.transpose(1, 2).contiguous()
+        # [B, T_curr, n_heads, head_dim]
+
+        # merge heads
+        attn_output = attn_output.view(B, T_curr, self.hidden_dim)
+        # [B, T_curr, 960]
+
+        # final projection
+        attn_output = self.out_proj(attn_output)
+        attn_output = self.resid_dropout(attn_output)
+
+        return attn_output, block_kv_cache
+
+        #raise NotImplementedError
 
 
 # ─────────────────────────────────────────────────────────────────────────────
