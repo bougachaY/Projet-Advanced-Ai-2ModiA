@@ -262,9 +262,9 @@ class LMMLP(nn.Module):
     def __init__(self, cfg):
         super().__init__()
 
-        self.gate_proj = nn.Linear(self.hidden_dim, self.inter_dim, bias=False)   # Linear: hidden_dim → inter_dim, no bias (gate branch)
-        self.up_proj = nn.Linear(self.hidden_dim, self.inter_dim, bias=False)     # Linear: hidden_dim → inter_dim, no bias (value branch)
-        self.down_proj = nn.Linear(self.inter_dim, self.hidden_dim, bias=False)   # Linear: inter_dim → hidden_dim, no bias
+        self.gate_proj = nn.Linear(cfg.hidden_dim, cfg.inter_dim, bias=False)   # Linear: hidden_dim → inter_dim, no bias (gate branch)
+        self.up_proj = nn.Linear(cfg.hidden_dim, cfg.inter_dim, bias=False)     # Linear: hidden_dim → inter_dim, no bias (value branch)
+        self.down_proj = nn.Linear(cfg.inter_dim, cfg.hidden_dim, bias=False)   # Linear: inter_dim → hidden_dim, no bias
 
         #raise NotImplementedError
 
@@ -286,9 +286,9 @@ class LMBlock(nn.Module):
     def __init__(self, cfg):
         super().__init__()
 
-        self.norm1 = RMSNorm(self.hidden_dim)  # RMSNorm applied before attention
+        self.norm1 = RMSNorm(cfg)  # RMSNorm applied before attention
         self.attn = LMAttention(cfg)    # the LMAttention sub-layer
-        self.norm2 = RMSNorm(self.hidden_dim)  # RMSNorm applied before the MLP
+        self.norm2 = RMSNorm(cfg)  # RMSNorm applied before the MLP
         self.mlp = LMMLP(cfg)     # the LMMLP sub-layer
 
         #raise NotImplementedError
@@ -326,11 +326,11 @@ class LanguageModel(nn.Module):
         self.cfg = cfg
         self.tie_weights = cfg.tie_weights
 
-        self.token_embedding = nn.Embedding(self.vocab_size, self.hidden_dim)  # Embedding table: vocab_size → hidden_dim
-        self.rotary_embd = RotaryEmbedding(self.head_dim)        # the RotaryEmbedding module
-        self.blocks = nn.ModuleList([LMBlock(cfg) for _ in range(self.n_blocks)])  # ModuleList of n_blocks LMBlock layers
-        self.norm = RMSNorm(self.hidden_dim)             # final RMSNorm
-        self.head = nn.Linear(self.hidden_dim, self.vocab_size, bias=False)             # Linear: hidden_dim → vocab_size (no bias)
+        self.token_embedding = nn.Embedding(cfg.vocab_size, cfg.hidden_dim)  # Embedding table: vocab_size → hidden_dim
+        self.rotary_embd = RotaryEmbedding(cfg)       # the RotaryEmbedding module
+        self.blocks = nn.ModuleList([LMBlock(cfg) for _ in range(cfg.n_blocks)])  # ModuleList of n_blocks LMBlock layers
+        self.norm = RMSNorm(cfg)             # final RMSNorm
+        self.head = nn.Linear(cfg.hidden_dim, cfg.vocab_size, bias=False)             # Linear: hidden_dim → vocab_size (no bias)
 
         if self.tie_weights:
             self.head.weight = self.token_embedding.weight
@@ -425,7 +425,8 @@ class LanguageModel(nn.Module):
         cfg.hidden_dim = hf.hidden_size
         cfg.inter_dim = hf.intermediate_size
         cfg.rms_eps = hf.rms_norm_eps
-        cfg.re_base = hf.rope_parameters.get('rope_theta', 100000)
+        #cfg.re_base = hf.rope_parameters.get('rope_theta', 100000)
+        cfg.re_base = getattr(hf, 'rope_theta',100000)
         cfg.max_position_embeddings = hf.max_position_embeddings
         cfg.n_heads = hf.num_attention_heads
         cfg.n_kv_heads = hf.num_key_value_heads
